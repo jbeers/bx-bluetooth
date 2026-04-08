@@ -71,7 +71,7 @@ function getState() {
 
 function requestPrinter() {
     if (selectedAdapter == null) {
-        selectedAdapter = bluetooth.getDefaultAdapter().get()
+        selectedAdapter = getDefaultAdapter().get()
     }
 
     resetState()

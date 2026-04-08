@@ -129,50 +129,60 @@ function updateFromState(snapshot) {
 function configureVm() {
   const optionalServices = parseUuidList(els.serviceUuids.value);
   const preferredCharacteristic = normalizeUuid(els.preferredCharacteristic.value);
-  const snapshot = state.vm.call("configure", [
+  const snapshot = state.vm.configure(
     els.namePrefix.value.trim(),
     optionalServices,
     preferredCharacteristic,
     els.writeMode.value
-  ]);
+  );
 
   els.payload.value = `${DISPLAY_TSPL}\n\n// payload bytes: ${snapshot.payloadLength}`;
   return snapshot;
 }
 
 async function boot() {
+  log("Loading wasm package...");
   await init();
+  log("Wasm package loaded.");
+  log("Creating Matchbox harness VM...");
   state.vm = new PrinterHarnessVM();
+  log("Matchbox harness VM created.");
   const snapshot = configureVm();
   updateFromState(snapshot);
   setConnectionStatus("Ready");
   log("Matchbox wasm harness initialized.");
 }
 
-els.requestDevice.addEventListener("click", () => {
+els.requestDevice.addEventListener("click", async () => {
   try {
+    if (!state.vm) {
+      throw new Error("Harness VM is not available.");
+    }
     configureVm();
     log("Requesting printer through BoxLang module...");
-    const device = state.vm.call("requestPrinter", []);
+    const device = await state.vm.request_printer();
     updateDevice(device);
     clearCharacteristics();
     setConnectionStatus("Device selected");
     log(`Selected device ${device.name || "Unnamed device"} (${device.id}).`);
   } catch (error) {
-    log(`requestPrinter failed: ${error.message}`);
+    log(`requestPrinter failed: ${error?.message || String(error)}`);
   }
 });
 
-els.connectDiscover.addEventListener("click", () => {
+els.connectDiscover.addEventListener("click", async () => {
   try {
+    if (!state.vm) {
+      throw new Error("Harness VM is not available.");
+    }
     configureVm();
     log("Connecting and discovering through BoxLang module...");
-    const result = state.vm.call("connectAndDiscover", []);
+    const result = await state.vm.connect_and_discover();
     renderCharacteristics(result.characteristics || [], result.selectedIndex || 1);
     setConnectionStatus("Connected and discovered");
     log(`Discovered ${state.characteristics.length} writable characteristic(s).`);
   } catch (error) {
-    log(`connectAndDiscover failed: ${error.message}`);
+    log(`connectAndDiscover failed: ${error?.message || String(error)}`);
     clearCharacteristics();
     setConnectionStatus("Discovery failed");
   }
@@ -180,46 +190,56 @@ els.connectDiscover.addEventListener("click", () => {
 
 els.characteristics.addEventListener("change", () => {
   try {
+    if (!state.vm) {
+      throw new Error("Harness VM is not available.");
+    }
     const oneBasedIndex = Number(els.characteristics.value) + 1;
     if (oneBasedIndex > 0) {
-      const selected = state.vm.call("selectCharacteristic", [oneBasedIndex]);
+      const selected = state.vm.select_characteristic(oneBasedIndex);
       state.selectedIndex = oneBasedIndex;
       log(`Selected characteristic ${selected.uuid}.`);
     }
     syncButtons();
   } catch (error) {
-    log(`selectCharacteristic failed: ${error.message}`);
+    log(`selectCharacteristic failed: ${error?.message || String(error)}`);
   }
 });
 
-els.sendPrint.addEventListener("click", () => {
+els.sendPrint.addEventListener("click", async () => {
   try {
+    if (!state.vm) {
+      throw new Error("Harness VM is not available.");
+    }
     configureVm();
     const selectedIndex = Number(els.characteristics.value);
     if (!Number.isNaN(selectedIndex) && selectedIndex >= 0) {
-      state.vm.call("selectCharacteristic", [selectedIndex + 1]);
+      state.vm.select_characteristic(selectedIndex + 1);
     }
     log("Sending hardcoded TSPL payload through BoxLang module...");
-    const result = state.vm.call("sendTestPrint", []);
+    const result = await state.vm.send_test_print();
     log(`Sent ${result.bytesSent} byte(s) to ${result.characteristic.uuid}.`);
   } catch (error) {
-    log(`sendTestPrint failed: ${error.message}`);
+    log(`sendTestPrint failed: ${error?.message || String(error)}`);
   }
 });
 
-els.disconnect.addEventListener("click", () => {
+els.disconnect.addEventListener("click", async () => {
   try {
-    state.vm.call("disconnectPrinter", []);
+    if (!state.vm) {
+      throw new Error("Harness VM is not available.");
+    }
+    await state.vm.disconnect_printer();
     clearCharacteristics();
     updateDevice(null);
     setConnectionStatus("Disconnected");
     log("Disconnected.");
   } catch (error) {
-    log(`disconnect failed: ${error.message}`);
+    log(`disconnect failed: ${error?.message || String(error)}`);
   }
 });
 
 boot().catch((error) => {
   setConnectionStatus("Boot failed");
-  log(`boot failed: ${error.message}`);
+  syncButtons();
+  log(`boot failed: ${error?.stack || error?.message || String(error)}`);
 });

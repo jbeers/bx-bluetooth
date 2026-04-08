@@ -8,7 +8,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bx-bluetooth-native = { path = "../matchbox" }
+console_error_panic_hook = "0.1"
 js-sys = "0.3"
 matchbox_compiler = { path = "../../../ortus-boxlang/matchbox/crates/matchbox-compiler" }
 matchbox_vm = { path = "../../../ortus-boxlang/matchbox/crates/matchbox-vm", features = ["js"] }
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window"] }
