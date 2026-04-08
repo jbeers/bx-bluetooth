@@ -1,0 +1,14 @@
+[package]
+name = "bx-bluetooth-site-host"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bx-bluetooth-native = { path = "../matchbox" }
+js-sys = "0.3"
+matchbox_compiler = { path = "../../../ortus-boxlang/matchbox/crates/matchbox-compiler" }
+matchbox_vm = { path = "../../../ortus-boxlang/matchbox/crates/matchbox-vm", features = ["js"] }
+wasm-bindgen = "0.2"

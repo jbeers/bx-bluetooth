@@ -12,8 +12,9 @@
       <p class="eyebrow">bx-bluetooth</p>
       <h1>Browser Printer Harness</h1>
       <p class="lede">
-        This static test page uses Web Bluetooth directly so you can validate printer discovery,
-        GATT selection, and a simple TSPL write from a secure origin.
+        This static test page runs a Matchbox WebAssembly VM, executes a BoxLang harness script,
+        and uses the `bx-bluetooth` module to validate printer discovery, GATT selection, and a
+        simple TSPL write from a secure origin.
       </p>
     </section>
 
@@ -49,7 +50,7 @@
       <p class="hint">
         Use Chrome or another Chromium-based browser on Android. Web Bluetooth requires HTTPS and
         a user gesture. Device selection is filtered by name prefix only; the service list is used
-        as an access allowlist during GATT discovery.
+        as an access allowlist during GATT discovery by the BoxLang harness.
       </p>
     </section>
 
@@ -87,7 +88,8 @@
       <h2>Hardcoded TSPL Payload</h2>
       <textarea id="payload" spellcheck="false" readonly></textarea>
       <p class="hint">
-        The payload is fixed in the page so the first phone test stays simple and repeatable.
+        The displayed text mirrors the hardcoded TSPL payload embedded in
+        <code>site/printer_harness.bxs</code>.
       </p>
     </section>
 

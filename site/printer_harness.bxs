@@ -1,0 +1,182 @@
+defaultNamePrefix = "KM"
+defaultOptionalServices = [
+    "000018f0-0000-1000-8000-00805f9b34fb",
+    "0000180a-0000-1000-8000-00805f9b34fb",
+    "0000180f-0000-1000-8000-00805f9b34fb",
+    "00001800-0000-1000-8000-00805f9b34fb",
+    "00001801-0000-1000-8000-00805f9b34fb"
+]
+defaultPreferredCharacteristic = "00002af1-0000-1000-8000-00805f9b34fb"
+defaultWriteMode = "withoutResponse"
+
+selectedAdapter = null
+selectedDevice = null
+selectedConnection = null
+selectedCharacteristicRefs = []
+selectedCharacteristicSummaries = []
+selectedCharacteristicIndex = 0
+
+payloadBytes = bytesNew([
+    83,73,90,69,32,53,56,32,109,109,44,32,52,48,32,109,109,13,10,71,65,80,32,48,44,48,13,10,
+    68,73,82,69,67,84,73,79,78,32,48,13,10,82,69,70,69,82,69,78,67,69,32,48,44,48,13,10,67,76,
+    83,13,10,84,69,88,84,32,50,48,44,50,48,44,34,51,34,44,48,44,49,44,49,44,34,66,88,32,66,76,
+    85,69,84,79,79,84,72,32,79,75,34,13,10,84,69,88,84,32,50,48,44,54,48,44,34,50,34,44,48,44,
+    49,44,49,44,34,77,65,84,67,72,66,79,88,32,87,65,83,77,32,84,69,83,84,34,13,10,80,82,73,78,
+    84,32,49,13,10,69,78,68,13,10
+])
+
+function resetState() {
+    selectedDevice = null
+    selectedConnection = null
+    selectedCharacteristicRefs = []
+    selectedCharacteristicSummaries = []
+    selectedCharacteristicIndex = 0
+}
+
+function configure(namePrefix = "", optionalServices = [], preferredCharacteristic = "", writeMode = "withoutResponse") {
+    if (len(namePrefix) > 0) {
+        defaultNamePrefix = namePrefix
+    }
+
+    if (arrayLen(optionalServices) > 0) {
+        defaultOptionalServices = optionalServices
+    }
+
+    if (len(preferredCharacteristic) > 0) {
+        defaultPreferredCharacteristic = lcase(preferredCharacteristic)
+    }
+
+    if (len(writeMode) > 0) {
+        defaultWriteMode = writeMode
+    }
+
+    return getState()
+}
+
+function getState() {
+    return {
+        "namePrefix": defaultNamePrefix,
+        "optionalServices": defaultOptionalServices,
+        "preferredCharacteristic": defaultPreferredCharacteristic,
+        "writeMode": defaultWriteMode,
+        "device": selectedDevice == null ? null : {
+            "name": selectedDevice.name,
+            "id": selectedDevice.id
+        },
+        "selectedCharacteristicIndex": selectedCharacteristicIndex,
+        "characteristics": selectedCharacteristicSummaries,
+        "payloadLength": bytesLen(payloadBytes)
+    }
+}
+
+function requestPrinter() {
+    if (selectedAdapter == null) {
+        selectedAdapter = bluetooth.getDefaultAdapter().get()
+    }
+
+    resetState()
+
+    selectedDevice = selectedAdapter.requestDevice({
+        "namePrefix": defaultNamePrefix,
+        "optionalServices": defaultOptionalServices
+    }).get()
+
+    return {
+        "name": selectedDevice.name,
+        "id": selectedDevice.id
+    }
+}
+
+function connectAndDiscover() {
+    if (selectedDevice == null) {
+        throw "No printer has been selected yet."
+    }
+
+    selectedConnection = selectedDevice.connectAndDiscover().get()
+    selectedCharacteristicRefs = []
+    selectedCharacteristicSummaries = []
+    selectedCharacteristicIndex = 0
+
+    services = selectedConnection.discoverServices().get()
+    preferredIndex = 0
+    currentIndex = 0
+
+    for (service in services) {
+        characteristics = service.discoverCharacteristics().get()
+        for (characteristic in characteristics) {
+            props = characteristic.properties
+            if (props.write || props.writeWithoutResponse) {
+                arrayAppend(selectedCharacteristicRefs, characteristic)
+                summary = {
+                    "serviceUuid": service.uuid,
+                    "uuid": characteristic.uuid,
+                    "write": props.write,
+                    "writeWithoutResponse": props.writeWithoutResponse
+                }
+                arrayAppend(selectedCharacteristicSummaries, summary)
+                currentIndex = currentIndex + 1
+
+                if (lcase(characteristic.uuid) == defaultPreferredCharacteristic) {
+                    preferredIndex = currentIndex
+                }
+            }
+        }
+    }
+
+    if (arrayLen(selectedCharacteristicSummaries) == 0) {
+        throw "No writable characteristics were discovered."
+    }
+
+    if (preferredIndex > 0) {
+        selectedCharacteristicIndex = preferredIndex
+    } else {
+        selectedCharacteristicIndex = 1
+    }
+
+    return {
+        "characteristics": selectedCharacteristicSummaries,
+        "selectedIndex": selectedCharacteristicIndex
+    }
+}
+
+function selectCharacteristic(index) {
+    if (arrayLen(selectedCharacteristicSummaries) == 0) {
+        throw "No characteristics have been discovered yet."
+    }
+
+    if (index < 1 || index > arrayLen(selectedCharacteristicSummaries)) {
+        throw "Characteristic index out of range."
+    }
+
+    selectedCharacteristicIndex = index
+    return selectedCharacteristicSummaries[index]
+}
+
+function sendTestPrint() {
+    if (selectedConnection == null) {
+        throw "No active printer connection."
+    }
+
+    if (selectedCharacteristicIndex < 1 || selectedCharacteristicIndex > arrayLen(selectedCharacteristicRefs)) {
+        throw "No writable characteristic has been selected."
+    }
+
+    characteristic = selectedCharacteristicRefs[selectedCharacteristicIndex]
+    characteristic.write(payloadBytes, {
+        "mode": defaultWriteMode
+    }).get()
+
+    return {
+        "bytesSent": bytesLen(payloadBytes),
+        "characteristic": selectedCharacteristicSummaries[selectedCharacteristicIndex]
+    }
+}
+
+function disconnectPrinter() {
+    if (selectedConnection != null) {
+        selectedConnection.disconnect().get()
+    }
+
+    resetState()
+    return true
+}

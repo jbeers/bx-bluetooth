@@ -1,18 +1,16 @@
-const DEFAULT_TSPL = [
+import init, { PrinterHarnessVM } from "./pkg/printer_harness.js";
+
+const DISPLAY_TSPL = [
   "SIZE 58 mm, 40 mm",
   "GAP 0,0",
   "DIRECTION 0",
   "REFERENCE 0,0",
   "CLS",
   "TEXT 20,20,\"3\",0,1,1,\"BX BLUETOOTH OK\"",
-  "TEXT 20,60,\"2\",0,1,1,\"WEB BLUETOOTH TEST\"",
+  "TEXT 20,60,\"2\",0,1,1,\"MATCHBOX WASM TEST\"",
   "PRINT 1",
-  "END",
-  ""
+  "END"
 ].join("\r\n");
-
-const CHUNK_SIZE = 128;
-const CHUNK_DELAY_MS = 20;
 
 const els = {
   namePrefix: document.querySelector("#name-prefix"),
@@ -32,12 +30,10 @@ const els = {
 };
 
 const state = {
-  device: null,
-  server: null,
-  writableCharacteristics: []
+  vm: null,
+  characteristics: [],
+  selectedIndex: 0
 };
-
-els.payload.value = DEFAULT_TSPL;
 
 function log(message) {
   const timestamp = new Date().toLocaleTimeString();
@@ -66,276 +62,164 @@ function parseUuidList(input) {
     .filter(Boolean);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function selectedCharacteristic() {
-  const index = Number(els.characteristics.value);
-  if (Number.isNaN(index) || index < 0) {
-    return null;
-  }
-  return state.writableCharacteristics[index] ?? null;
-}
-
 function setConnectionStatus(value) {
   els.connectionStatus.textContent = value;
 }
 
 function syncButtons() {
-  const hasDevice = Boolean(state.device);
-  const hasServer = Boolean(state.server?.connected);
-  const hasCharacteristic = Boolean(selectedCharacteristic());
+  const hasDevice = els.deviceId.textContent !== "None";
+  const connected = state.characteristics.length > 0;
+  const hasSelection = Number(els.characteristics.value) >= 0;
 
   els.connectDiscover.disabled = !hasDevice;
-  els.disconnect.disabled = !hasServer;
-  els.sendPrint.disabled = !(hasServer && hasCharacteristic);
+  els.disconnect.disabled = !connected;
+  els.sendPrint.disabled = !(connected && hasSelection);
 }
 
 function clearCharacteristics() {
-  state.writableCharacteristics = [];
+  state.characteristics = [];
+  state.selectedIndex = 0;
   els.characteristics.innerHTML = "";
   syncButtons();
 }
 
-function renderCharacteristics() {
+function renderCharacteristics(characteristics, selectedIndex) {
+  state.characteristics = characteristics;
+  state.selectedIndex = selectedIndex;
   els.characteristics.innerHTML = "";
 
-  state.writableCharacteristics.forEach((entry, index) => {
+  characteristics.forEach((entry, zeroIndex) => {
     const option = document.createElement("option");
     const props = [];
-    if (entry.characteristic.properties.writeWithoutResponse) {
+    if (entry.writeWithoutResponse) {
       props.push("withoutResponse");
     }
-    if (entry.characteristic.properties.write) {
+    if (entry.write) {
       props.push("withResponse");
     }
-    option.value = String(index);
+    option.value = String(zeroIndex);
     option.textContent = `${entry.serviceUuid} :: ${entry.uuid} [${props.join(", ")}]`;
     els.characteristics.append(option);
   });
 
-  const preferredUuid = normalizeUuid(els.preferredCharacteristic.value);
-  const preferredIndex = state.writableCharacteristics.findIndex(
-    (entry) => entry.uuid === preferredUuid
-  );
-
-  if (preferredIndex >= 0) {
-    els.characteristics.value = String(preferredIndex);
-    log(`Auto-selected preferred characteristic ${preferredUuid}.`);
-  } else if (state.writableCharacteristics.length > 0) {
-    els.characteristics.value = "0";
-    log("Preferred characteristic not found. Selected the first writable characteristic.");
+  if (characteristics.length > 0) {
+    const zeroIndex = Math.max(0, selectedIndex - 1);
+    els.characteristics.value = String(zeroIndex);
   }
 
   syncButtons();
 }
 
-function setDevice(device) {
-  state.device = device;
-  state.server = null;
-  clearCharacteristics();
-
-  els.deviceName.textContent = device?.name || "Unnamed device";
-  els.deviceId.textContent = device?.id || "Unavailable";
-  setConnectionStatus(device ? "Device selected" : "Idle");
+function updateDevice(device) {
+  els.deviceName.textContent = device?.name || "None";
+  els.deviceId.textContent = device?.id || "None";
   syncButtons();
 }
 
-function resetConnectionState(reason) {
-  state.server = null;
-  clearCharacteristics();
-  setConnectionStatus(reason);
-  syncButtons();
-}
-
-async function requestPrinter() {
-  if (!navigator.bluetooth) {
-    throw new Error("Web Bluetooth is not available in this browser.");
-  }
-
-  const namePrefix = els.namePrefix.value.trim();
-  const optionalServices = parseUuidList(els.serviceUuids.value);
-  const requestOptions = {};
-
-  if (namePrefix) {
-    const filter = {};
-    if (namePrefix) {
-      filter.namePrefix = namePrefix;
-    }
-    requestOptions.filters = [filter];
+function updateFromState(snapshot) {
+  updateDevice(snapshot.device);
+  if (Array.isArray(snapshot.characteristics) && snapshot.characteristics.length > 0) {
+    renderCharacteristics(snapshot.characteristics, snapshot.selectedCharacteristicIndex || 1);
+    setConnectionStatus("Connected and discovered");
   } else {
-    requestOptions.acceptAllDevices = true;
+    clearCharacteristics();
   }
-
-  if (optionalServices.length > 0) {
-    requestOptions.optionalServices = optionalServices;
-  }
-
-  log(`Requesting device with ${JSON.stringify(requestOptions)}.`);
-  const device = await navigator.bluetooth.requestDevice(requestOptions);
-  device.addEventListener("gattserverdisconnected", () => {
-    log("Device disconnected.");
-    resetConnectionState("Disconnected");
-  });
-  return device;
 }
 
-async function collectServicesWithFallback(server, optionalServices) {
-  const primaryServices = await server.getPrimaryServices();
-  if (primaryServices.length > 0) {
-    return primaryServices;
-  }
-
-  const recovered = [];
-  for (const uuid of optionalServices) {
-    try {
-      const service = await server.getPrimaryService(uuid);
-      recovered.push(service);
-      log(`Recovered service ${service.uuid} via targeted lookup.`);
-    } catch (error) {
-      log(`Primary service ${uuid} was not available: ${error.message}`);
-    }
-  }
-  return recovered;
-}
-
-async function connectAndDiscover() {
-  if (!state.device) {
-    throw new Error("No device has been selected yet.");
-  }
-
-  log(`Connecting to ${state.device.name || state.device.id}...`);
-  try {
-    state.server = await state.device.gatt.connect();
-  } catch (error) {
-    log(`Initial connect failed: ${error.message}. Retrying once...`);
-    await sleep(500);
-    state.server = await state.device.gatt.connect();
-  }
-  setConnectionStatus("Connected");
-
+function configureVm() {
   const optionalServices = parseUuidList(els.serviceUuids.value);
-  log("Discovering primary services...");
-  const services = await collectServicesWithFallback(state.server, optionalServices);
-  log(`Found ${services.length} primary services.`);
+  const preferredCharacteristic = normalizeUuid(els.preferredCharacteristic.value);
+  const snapshot = state.vm.call("configure", [
+    els.namePrefix.value.trim(),
+    optionalServices,
+    preferredCharacteristic,
+    els.writeMode.value
+  ]);
 
-  const entries = [];
-
-  for (const service of services) {
-    log(`Discovering characteristics for ${service.uuid}...`);
-    const characteristics = await service.getCharacteristics();
-    for (const characteristic of characteristics) {
-      const writable =
-        characteristic.properties.write || characteristic.properties.writeWithoutResponse;
-      if (!writable) {
-        continue;
-      }
-
-      const entry = {
-        serviceUuid: service.uuid.toLowerCase(),
-        uuid: characteristic.uuid.toLowerCase(),
-        characteristic
-      };
-
-      entries.push(entry);
-      log(
-        `Writable characteristic ${entry.uuid} on ${entry.serviceUuid} ` +
-          `(write=${characteristic.properties.write}, withoutResponse=${characteristic.properties.writeWithoutResponse})`
-      );
-    }
-  }
-
-  state.writableCharacteristics = entries;
-  renderCharacteristics();
-
-  if (entries.length === 0) {
-    throw new Error("No writable characteristics were discovered.");
-  }
+  els.payload.value = `${DISPLAY_TSPL}\n\n// payload bytes: ${snapshot.payloadLength}`;
+  return snapshot;
 }
 
-async function writePayload(characteristic, bytes) {
-  const mode = els.writeMode.value;
-  const useWithoutResponse =
-    mode === "withoutResponse" && characteristic.properties.writeWithoutResponse;
-  const useWithResponse =
-    mode === "withResponse" && characteristic.properties.write;
-
-  if (!useWithoutResponse && !useWithResponse) {
-    throw new Error(`Selected characteristic does not support ${mode}.`);
-  }
-
-  for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
-    const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
-    if (useWithoutResponse) {
-      await characteristic.writeValueWithoutResponse(chunk);
-    } else {
-      await characteristic.writeValueWithResponse(chunk);
-    }
-    log(`Sent chunk ${Math.floor(offset / CHUNK_SIZE) + 1} (${chunk.length} bytes).`);
-    if (useWithoutResponse && offset + CHUNK_SIZE < bytes.length) {
-      await sleep(CHUNK_DELAY_MS);
-    }
-  }
+async function boot() {
+  await init();
+  state.vm = new PrinterHarnessVM();
+  const snapshot = configureVm();
+  updateFromState(snapshot);
+  setConnectionStatus("Ready");
+  log("Matchbox wasm harness initialized.");
 }
 
-els.requestDevice.addEventListener("click", async () => {
+els.requestDevice.addEventListener("click", () => {
   try {
-    const device = await requestPrinter();
-    setDevice(device);
+    configureVm();
+    log("Requesting printer through BoxLang module...");
+    const device = state.vm.call("requestPrinter", []);
+    updateDevice(device);
+    clearCharacteristics();
+    setConnectionStatus("Device selected");
     log(`Selected device ${device.name || "Unnamed device"} (${device.id}).`);
   } catch (error) {
-    log(`requestDevice failed: ${error.message}`);
+    log(`requestPrinter failed: ${error.message}`);
   }
 });
 
-els.connectDiscover.addEventListener("click", async () => {
+els.connectDiscover.addEventListener("click", () => {
   try {
-    clearCharacteristics();
-    await connectAndDiscover();
+    configureVm();
+    log("Connecting and discovering through BoxLang module...");
+    const result = state.vm.call("connectAndDiscover", []);
+    renderCharacteristics(result.characteristics || [], result.selectedIndex || 1);
     setConnectionStatus("Connected and discovered");
-    log("Discovery complete.");
+    log(`Discovered ${state.characteristics.length} writable characteristic(s).`);
   } catch (error) {
     log(`connectAndDiscover failed: ${error.message}`);
-    if (state.server?.connected) {
-      state.server.disconnect();
-    }
-    resetConnectionState("Discovery failed");
+    clearCharacteristics();
+    setConnectionStatus("Discovery failed");
   }
 });
 
 els.characteristics.addEventListener("change", () => {
-  syncButtons();
+  try {
+    const oneBasedIndex = Number(els.characteristics.value) + 1;
+    if (oneBasedIndex > 0) {
+      const selected = state.vm.call("selectCharacteristic", [oneBasedIndex]);
+      state.selectedIndex = oneBasedIndex;
+      log(`Selected characteristic ${selected.uuid}.`);
+    }
+    syncButtons();
+  } catch (error) {
+    log(`selectCharacteristic failed: ${error.message}`);
+  }
 });
 
-els.sendPrint.addEventListener("click", async () => {
+els.sendPrint.addEventListener("click", () => {
   try {
-    const entry = selectedCharacteristic();
-    if (!entry) {
-      throw new Error("No writable characteristic is selected.");
+    configureVm();
+    const selectedIndex = Number(els.characteristics.value);
+    if (!Number.isNaN(selectedIndex) && selectedIndex >= 0) {
+      state.vm.call("selectCharacteristic", [selectedIndex + 1]);
     }
-
-    const bytes = new TextEncoder().encode(els.payload.value);
-    log(`Sending ${bytes.length} bytes to ${entry.uuid}...`);
-    await writePayload(entry.characteristic, bytes);
-    log("Test print payload sent.");
+    log("Sending hardcoded TSPL payload through BoxLang module...");
+    const result = state.vm.call("sendTestPrint", []);
+    log(`Sent ${result.bytesSent} byte(s) to ${result.characteristic.uuid}.`);
   } catch (error) {
-    log(`print failed: ${error.message}`);
+    log(`sendTestPrint failed: ${error.message}`);
   }
 });
 
 els.disconnect.addEventListener("click", () => {
-  if (state.server?.connected) {
-    state.server.disconnect();
-    log("Disconnect requested.");
-  } else {
-    resetConnectionState("Disconnected");
+  try {
+    state.vm.call("disconnectPrinter", []);
+    clearCharacteristics();
+    updateDevice(null);
+    setConnectionStatus("Disconnected");
+    log("Disconnected.");
+  } catch (error) {
+    log(`disconnect failed: ${error.message}`);
   }
 });
 
-if (!window.isSecureContext) {
-  log("This page is not running in a secure context. Web Bluetooth will not work.");
-}
-if (!navigator.bluetooth) {
-  log("navigator.bluetooth is unavailable in this browser.");
-}
+boot().catch((error) => {
+  setConnectionStatus("Boot failed");
+  log(`boot failed: ${error.message}`);
+});

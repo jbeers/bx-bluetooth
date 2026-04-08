@@ -122,10 +122,7 @@ pub async fn request_device(
     }
 
     let promise = adapter.bluetooth.request_device(&request_options);
-    let value = JsFuture::from(promise).await.map_err(js_error)?;
-    let device: BluetoothDevice = value
-        .dyn_into()
-        .map_err(|_| "requestDevice did not return a BluetoothDevice".to_string())?;
+    let device: BluetoothDevice = JsFuture::from(promise).await.map_err(js_error)?;
 
     Ok(DeviceHandle {
         id: device.id(),
@@ -140,10 +137,7 @@ pub async fn connect(device: &DeviceHandle) -> Result<ConnectionHandle, String> 
         .gatt()
         .ok_or_else(|| "Device does not expose a GATT server".to_string())?;
     let promise = gatt.connect();
-    let value = JsFuture::from(promise).await.map_err(js_error)?;
-    let server: BluetoothRemoteGattServer = value
-        .dyn_into()
-        .map_err(|_| "connect() did not return a GATT server".to_string())?;
+    let server: BluetoothRemoteGattServer = JsFuture::from(promise).await.map_err(js_error)?;
     Ok(ConnectionHandle { server })
 }
 
@@ -156,9 +150,7 @@ pub async fn discover_services(connection: &ConnectionHandle) -> Result<Vec<Serv
     let services_value = JsFuture::from(connection.server.get_primary_services())
         .await
         .map_err(js_error)?;
-    let services_array: Array = services_value
-        .dyn_into()
-        .map_err(|_| "getPrimaryServices() did not return an array".to_string())?;
+    let services_array: Array = JsValue::from(services_value).into();
 
     let mut services = Vec::new();
     for service_value in services_array.iter() {
@@ -169,9 +161,7 @@ pub async fn discover_services(connection: &ConnectionHandle) -> Result<Vec<Serv
         let chars_value = JsFuture::from(service.get_characteristics())
             .await
             .map_err(js_error)?;
-        let chars_array: Array = chars_value
-            .dyn_into()
-            .map_err(|_| "getCharacteristics() did not return an array".to_string())?;
+        let chars_array: Array = JsValue::from(chars_value).into();
 
         let mut characteristics = Vec::new();
         for characteristic_value in chars_array.iter() {

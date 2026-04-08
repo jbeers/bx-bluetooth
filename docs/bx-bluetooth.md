@@ -220,10 +220,12 @@ See:
 
 ## Browser Harness
 
-For basic phone-based browser testing, this repo also contains a static Web Bluetooth harness in
+For basic phone-based browser testing, this repo also contains a static browser harness in
 [`site/`](../site/).
 
-It is intentionally separate from the Matchbox/BoxLang runtime layer. The goal is to validate:
+This harness now runs a small Matchbox-based wasm host from [`site-host/`](../site-host/) and
+executes the BoxLang script in [`printer_harness.bxs`](../site/printer_harness.bxs). The goal is
+to validate:
 
 - secure-origin browser access
 - chooser-based printer selection
@@ -238,3 +240,13 @@ The harness uses a hardcoded TSPL sample and defaults to the UUIDs already prove
 
 The GitHub Pages workflow in [`deploy-pages.yml`](../.github/workflows/deploy-pages.yml) publishes
 the `site/` directory so it can be tested from an HTTPS origin on a phone.
+
+Generated browser artifacts live in [`site/pkg/`](../site/pkg/). Rebuild them from the repo root
+with:
+
+```bash
+cd site-host
+cargo build --target wasm32-unknown-unknown --release
+wasm-bindgen --target web --out-dir ../site/pkg --out-name printer_harness \
+  target/wasm32-unknown-unknown/release/bx_bluetooth_site_host.wasm
+```
