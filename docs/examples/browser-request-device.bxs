@@ -1,0 +1,11 @@
+// Browser-oriented example using a chooser-based discovery flow.
+
+var adapter = bluetooth.getDefaultAdapter().get();
+
+var device = adapter.requestDevice( {
+    services: [ "18f0" ],
+    optionalServices: [ "180a" ],
+    namePrefix: "KM"
+} ).get();
+
+println( "Selected device: " & device.name );

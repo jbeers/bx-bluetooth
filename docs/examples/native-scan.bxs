@@ -1,0 +1,13 @@
+// Native-oriented example using BLE scan.
+// `scan()` is intentionally target-specific and may not exist in browser runtimes.
+
+var adapter = bluetooth.getDefaultAdapter().get();
+
+var devices = adapter.scan( {
+    timeout: 3000,
+    namePrefix: "KM"
+} ).get();
+
+for ( var device in devices ) {
+    println( device.name );
+}

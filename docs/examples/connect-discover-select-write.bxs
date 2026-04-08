@@ -1,0 +1,27 @@
+// Canonical happy-path workflow:
+// connect, discover, select a characteristic, write binary data, disconnect.
+
+var adapter = bluetooth.getDefaultAdapter().get();
+var device = adapter.requestDevice( {
+    services: [ "18f0" ],
+    optionalServices: [ "180a" ],
+    namePrefix: "KM"
+} ).get();
+
+var connection = device.connectAndDiscover().get();
+
+var matches = connection
+    .selectCharacteristics()
+    .service( "18f0" )
+    .writeWithoutResponse()
+    .list();
+
+if ( matches.len() == 0 ) {
+    throw( "No writable characteristics matched the selector." );
+}
+
+var characteristic = matches[ 1 ];
+var payload = binaryDecode( "1B40", "hex" );
+
+characteristic.write( payload, { mode: "withoutResponse" } ).get();
+connection.disconnect().get();

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bx-bluetooth Printer Harness</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <p class="eyebrow">bx-bluetooth</p>
+      <h1>Browser Printer Harness</h1>
+      <p class="lede">
+        This static test page uses Web Bluetooth directly so you can validate printer discovery,
+        GATT selection, and a simple TSPL write from a secure origin.
+      </p>
+    </section>
+
+    <section class="panel controls">
+      <h2>Printer Settings</h2>
+      <div class="grid">
+        <label>
+          <span>Name Prefix</span>
+          <input id="name-prefix" type="text" value="KM" autocomplete="off">
+        </label>
+        <label>
+          <span>Optional Services</span>
+          <input id="service-uuids" type="text" value="18f0,180a,180f,1800,1801" autocomplete="off">
+        </label>
+        <label>
+          <span>Preferred Write Characteristic</span>
+          <input id="preferred-characteristic" type="text" value="2af1" autocomplete="off">
+        </label>
+        <label>
+          <span>Write Mode</span>
+          <select id="write-mode">
+            <option value="withoutResponse" selected>withoutResponse</option>
+            <option value="withResponse">withResponse</option>
+          </select>
+        </label>
+      </div>
+      <div class="button-row">
+        <button id="request-device">Request Printer</button>
+        <button id="connect-discover" disabled>Connect And Discover</button>
+        <button id="send-print" disabled>Send Test Print</button>
+        <button id="disconnect" disabled>Disconnect</button>
+      </div>
+      <p class="hint">
+        Use Chrome or another Chromium-based browser on Android. Web Bluetooth requires HTTPS and
+        a user gesture. Device selection is filtered by name prefix only; the service list is used
+        as an access allowlist during GATT discovery.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Selected Device</h2>
+      <dl class="details">
+        <div>
+          <dt>Name</dt>
+          <dd id="device-name">None</dd>
+        </div>
+        <div>
+          <dt>ID</dt>
+          <dd id="device-id">None</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd id="connection-status">Idle</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <h2>Writable Characteristics</h2>
+      <label>
+        <span>Characteristic</span>
+        <select id="characteristics" size="6"></select>
+      </label>
+      <p class="hint">
+        The harness auto-selects the preferred UUID when present. If not, pick one of the writable
+        characteristics manually.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Hardcoded TSPL Payload</h2>
+      <textarea id="payload" spellcheck="false" readonly></textarea>
+      <p class="hint">
+        The payload is fixed in the page so the first phone test stays simple and repeatable.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Log</h2>
+      <pre id="log" class="log"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

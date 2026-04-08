@@ -1,0 +1,28 @@
+// Printer-adjacent example.
+// The Bluetooth module only sends bytes; payload construction comes from elsewhere.
+
+var adapter = bluetooth.getDefaultAdapter().get();
+var device = adapter.requestDevice( {
+    namePrefix: "KM"
+} ).get();
+
+var connection = device.connectAndDiscover().get();
+
+var printerCharacteristics = connection
+    .selectCharacteristics()
+    .writeWithoutResponse()
+    .list();
+
+if ( printerCharacteristics.len() == 0 ) {
+    throw( "No writable printer characteristic found." );
+}
+
+var printerCharacteristic = printerCharacteristics[ 1 ];
+
+// Example only: assume another module produced printer-ready bytes.
+var printerPayload = tspl.buildLabelBytes( {
+    text: "Hello from BoxLang"
+} );
+
+printerCharacteristic.write( printerPayload, { mode: "withoutResponse" } ).get();
+connection.disconnect().get();
