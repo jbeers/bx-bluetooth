@@ -11,8 +11,10 @@ use matchbox_vm::types::{register_wasm_future_thunk, NativeFutureValue};
 
 mod backend;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "espidf")))]
 use backend::native as platform;
+#[cfg(target_os = "espidf")]
+use backend::esp32 as platform;
 #[cfg(target_arch = "wasm32")]
 use backend::wasm as platform;
 

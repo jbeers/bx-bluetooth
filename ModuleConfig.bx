@@ -1,4 +1,7 @@
-class {
+class ModuleConfig {
+    function onLoad() {
+    }
+
     function configure() {
         return {
             "version": "0.1.0",

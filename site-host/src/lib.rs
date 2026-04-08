@@ -2,9 +2,7 @@ use bx_bluetooth_native::{register_bifs, register_classes};
 use console_error_panic_hook;
 use js_sys::{Array, Promise};
 use matchbox_compiler::{compiler::Compiler, parser};
-use matchbox_vm::{vm::VM, Chunk};
-use std::cell::RefCell;
-use std::rc::Rc;
+use matchbox_vm::vm::{HostFutureState, VM};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::window;
@@ -32,7 +30,6 @@ async fn yield_to_host() -> Result<(), JsValue> {
 #[wasm_bindgen]
 pub struct PrinterHarnessVM {
     vm: VM,
-    chunk: Option<Rc<RefCell<Chunk>>>,
 }
 
 #[wasm_bindgen]
@@ -49,16 +46,12 @@ impl PrinterHarnessVM {
             .map_err(|e| as_js_error(format!("Compiler Error: {}", e)))?;
 
         chunk.reconstruct_functions();
-        let chunk_rc = Rc::new(RefCell::new(chunk.clone()));
 
         let mut vm = VM::new_with_bifs(register_bifs(), register_classes());
-        vm.interpret_no_timeslice(chunk)
+        vm.interpret_sync(chunk)
             .map_err(|e| as_js_error(format!("VM Runtime Error: {}", e)))?;
 
-        Ok(PrinterHarnessVM {
-            vm,
-            chunk: Some(chunk_rc),
-        })
+        Ok(PrinterHarnessVM { vm })
     }
 
     fn resolve_function(&mut self, name: &str) -> Result<matchbox_vm::types::BxValue, JsValue> {
@@ -80,11 +73,11 @@ impl PrinterHarnessVM {
         let bx_args = self.bx_args(args);
         let future = self
             .vm
-            .begin_call_function_value(func, bx_args)
+            .start_call_function_value(func, bx_args)
             .map_err(|e| as_js_error(format!("VM Runtime Error: {}", e)))?;
         let value = self
             .vm
-            .run_until_future_settled_no_timeslice(future)
+            .run_future_to_completion(future)
             .map_err(|e| as_js_error(format!("VM Runtime Error: {}", e)))?;
         Ok(self.vm.bx_to_js(&value))
     }
@@ -94,33 +87,28 @@ impl PrinterHarnessVM {
         let bx_args = self.bx_args(args);
         let future = self
             .vm
-            .begin_call_function_value(func, bx_args)
+            .start_call_function_value(func, bx_args)
             .map_err(|e| as_js_error(format!("VM Runtime Error: {}", e)))?;
 
         loop {
             self.vm
-                .pump_once_no_timeslice()
+                .pump_until_blocked()
                 .map_err(|e| as_js_error(format!("VM Runtime Error: {}", e)))?;
 
-            let (state, value) = self
+            let state = self
                 .vm
-                .future_snapshot(future)
+                .future_state(future)
                 .map_err(|e| as_js_error(format!("VM Runtime Error: {}", e)))?;
 
             match state {
-                0 => {
+                HostFutureState::Pending => {
                     yield_to_host().await?;
                 }
-                1 => {
-                    let value = value.unwrap_or(matchbox_vm::types::BxValue::new_null());
+                HostFutureState::Completed(value) => {
                     return Ok(self.vm.bx_to_js(&value));
                 }
-                2 => {
-                    let error = value.unwrap_or(matchbox_vm::types::BxValue::new_null());
+                HostFutureState::Failed(error) => {
                     return Err(self.vm.bx_to_js(&error));
-                }
-                _ => {
-                    return Err(as_js_error("Unknown future state"));
                 }
             }
         }

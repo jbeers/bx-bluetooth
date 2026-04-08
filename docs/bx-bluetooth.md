@@ -1,4 +1,4 @@
-# `bx-bluetooth` Draft Documentation
+# `bx-bluetooth`
 
 ## Overview
 
@@ -16,13 +16,25 @@ This module does not generate printer commands, convert images, or contain print
 
 ## Status
 
-This is a design-first documentation draft for the planned API. The implementation is expected to target:
+The implementation now has concrete backends for:
 
 1. browser WASM
 2. native host
-3. ESP32
+3. ESP32 via ESP-IDF / MatchBox fusion
 
-The final module should include a target matrix documenting exact availability by environment.
+Current backend matrix:
+
+| Environment | Backend | Status |
+|---|---|---|
+| Browser / WASM | Web Bluetooth | working |
+| Native host | `btleplug` | working |
+| ESP32 / ESP-IDF | `esp32-nimble` via MatchBox fusion | working on ESP32-S3 hardware |
+
+The shared BoxLang API is intentionally aligned across those targets, but device discovery remains target-shaped:
+
+- browsers use `requestDevice()`
+- native hosts use `scan()`
+- ESP32 currently uses the same `scan()` path as native host
 
 ## Public Namespace
 
@@ -51,7 +63,7 @@ bluetooth.getAdapters() -> Future<Array<Adapter>>
 bluetooth.getDefaultAdapter() -> Future<Adapter>
 ```
 
-These are the only module-level entry points planned for v1.
+These are the only module-level entry points in v1.
 
 ### `Adapter`
 
@@ -79,12 +91,12 @@ adapter.scan( {
 
 ### `Device`
 
-Planned public properties:
+Public properties:
 
 - `id`
 - `name`
 
-Planned public methods:
+Public methods:
 
 ```boxlang
 device.connect() -> Future<Connection>
@@ -178,7 +190,7 @@ Rules:
 
 ### `BTError`
 
-Planned public fields:
+Public fields:
 
 - `code`
 - `message`
@@ -209,9 +221,73 @@ Contract:
 - reconnect helpers
 - printer command generation
 
+## ESP32 Notes
+
+The ESP32 backend lives in [`matchbox/src/backend/esp32.rs`](../matchbox/src/backend/esp32.rs).
+
+It is designed for Matchbox's ESP-IDF-based `--target esp32` path and currently assumes:
+
+- `esp32-nimble` for BLE client operations
+- `esp-idf-svc` / `esp-idf-sys` from the Matchbox ESP32 runner stack
+- NimBLE enabled in [`matchbox/sdkconfig.defaults`](../matchbox/sdkconfig.defaults)
+
+Current status:
+
+- target-specific Cargo/dependency wiring is in place
+- backend selection now routes `target_os = "espidf"` away from the desktop `btleplug` backend
+- the ESP32 backend has been validated on real ESP32-S3 hardware through MatchBox's `--target esp32` fusion path
+- scan, connect, service discovery, characteristic selection, and printer writes are working end-to-end
+- the backend still has TODOs around richer advertisement/service filtering and tighter characteristic property introspection
+
+### MatchBox Workflow
+
+The current ESP32 flow assumes:
+
+1. MatchBox is built on the host toolchain.
+2. ESP-IDF is activated in the shell used for `--target esp32`.
+3. `RUSTUP_TOOLCHAIN=esp` is set for the actual ESP32 build.
+
+Typical shell setup:
+
+```bash
+source /path/to/esp-idf/export.sh
+export RUSTUP_TOOLCHAIN=esp
+export ESP_IDF_ESPUP_CLANG_SYMLINK=ignore
+export LIBCLANG_PATH=/usr/lib64
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+Useful sanity check:
+
+```bash
+matchbox esp32-doctor
+```
+
+Typical ESP32 smoke-test deploy:
+
+```bash
+matchbox \
+  /path/to/bx-bluetooth/esp32-printer-smoke.bxs \
+  --module /path/to/bx-bluetooth \
+  --target esp32 \
+  --chip esp32s3 \
+  --full-flash
+```
+
+If local serial permissions still block flash/monitor access, the current fallback remains manual `espflash`.
+
+### Current ESP32 Caveats
+
+- advertisement-time service filtering is still conservative
+- characteristic write capability on ESP32 is still inferred permissively in the backend
+- the smoke script is intentionally printer-focused and not yet a polished app-facing helper
+
 ## Examples
 
 See:
+
+- [`../esp32-printer-smoke.bxs`](../esp32-printer-smoke.bxs) for the current ESP32 printer smoke test
+- [`../matchbox/examples/esp32_scan_harness.rs`](../matchbox/examples/esp32_scan_harness.rs) for a native-only ESP32 scan harness used to isolate backend/runtime issues
 
 - [Browser Request Device](./examples/browser-request-device.bxs)
 - [Native Scan](./examples/native-scan.bxs)
